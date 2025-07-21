@@ -1,8 +1,14 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  HttpStatus,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
-import { PrismaService } from 'src/prisma/prisma.service';
+import { PrismaService } from 'src/config/prisma/prisma.service';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
+import { RpcException } from '@nestjs/microservices';
 
 @Injectable()
 export class ProductsService {
@@ -19,12 +25,12 @@ export class ProductsService {
   async findAll(paginationDto: PaginationDto) {
     const { page, limit } = paginationDto;
 
-    const totalPage = await this.db.product.count({
+    const totalCount = await this.db.product.count({
       where: {
         available: true,
       },
     });
-    const lasPage = Math.ceil(totalPage / limit);
+    const lasPage = Math.ceil(totalCount / limit);
 
     return {
       data: await this.db.product.findMany({
@@ -36,6 +42,7 @@ export class ProductsService {
       }),
       metadata: {
         page,
+        total: totalCount,
         limit,
         lasPage,
       },
@@ -51,14 +58,18 @@ export class ProductsService {
     });
 
     if (!product || product.available === false) {
-      throw new NotFoundException(`Product #${id} not found`);
+      throw new RpcException({
+        status: HttpStatus.BAD_REQUEST,
+        message: `Product with id #${id} not found`,
+      });
     }
 
     return product;
   }
 
   async update(id: number, updateProductDto: UpdateProductDto) {
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    console.log(updateProductDto);
+    console.log(id);
     const { id: _, ...data } = updateProductDto;
     await this.findOne(id);
 
@@ -98,5 +109,27 @@ export class ProductsService {
       this.logger.error(error);
       throw new NotFoundException(`Product #${id} not found`);
     }
+  }
+
+  async validateProducts(ids: number[]) {
+    ids = Array.from(new Set(ids));
+
+    const products = await this.db.product.findMany({
+      where: {
+        id: {
+          in: ids,
+        },
+        available: true,
+      },
+    });
+
+    if (products.length !== ids.length) {
+      throw new RpcException({
+        status: HttpStatus.BAD_REQUEST,
+        message: `Products with ids ${ids.toString()} not found`,
+      });
+    }
+
+    return products;
   }
 }
